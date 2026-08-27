@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Company Assistant</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="chat-card" aria-label="Company assistant">
+      <header><div class="mark">C</div><div><h1>Company Assistant</h1><p><span class="dot"></span> Online · Answers from company documents</p></div></header>
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <div id="voice-notice" class="voice-notice hidden" role="status"></div>
+      <div class="voice-settings" aria-label="Voice settings">
+        <label>Language<select id="voice-language"><option value="en-IN">English (India)</option><option value="hi-IN">Hindi (India)</option></select></label>
+        <label>Voice<select id="voice-choice" aria-label="Speech voice"><option value="">Browser default</option></select></label>
+        <label>Speed<select id="voice-rate"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option></select></label>
+        <button id="stop-speaking" class="secondary-button" type="button" disabled>Stop speaking</button>
+      </div>
+      <form id="chat-form" class="composer">
+        <label class="sr-only" for="message">Your question</label>
+        <input id="message" maxlength="2000" placeholder="Ask a question…" autocomplete="off" required>
+        <button id="microphone" class="icon-button" type="button" aria-label="Start voice input" aria-pressed="false" title="Start voice input">🎤</button>
+        <button id="send-message" type="submit" aria-label="Send message">Send</button>
+      </form>
+      <p id="voice-status" class="voice-status" role="status" aria-live="polite">Voice: stopped</p>
+      <button id="lead-toggle" class="link-button" type="button">Interested in working with us? Leave your details</button>
+      <form id="lead-form" class="lead-form hidden">
+        <div class="grid"><input name="name" maxlength="120" placeholder="Name" required><input name="company" maxlength="160" placeholder="Company" required></div>
+        <div class="grid"><input name="email" type="email" placeholder="Email" required><input name="phone" maxlength="32" placeholder="Phone" required></div>
+        <textarea name="requirement" maxlength="3000" placeholder="What do you need?" required></textarea>
+        <button type="submit">Submit enquiry</button><p id="lead-status" role="status"></p>
+      </form>
+    </section>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>
