@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     # Zoho Modules
     zoho_accounts_module: str = "Accounts"
     zoho_deals_module: str = "Deals"
+    zoho_quotes_module: str = "Quotes"
     zoho_alerts_module: str = "CRM_Alert"
     # Related Lists
     zoho_account_deals_related_list: str = "Deals"
@@ -24,6 +25,9 @@ class Settings(BaseSettings):
     # Rule Settings
     stale_account_days: int = 30
     stale_deal_days: int = 21
+    stale_quote_days: int = 14
+    quote_status_field: str = "Quote_Stage"
+    final_quote_statuses: list[str] = ["Accepted", "Rejected", "Cancelled", "Expired"]
     required_account_profile_fields: list[str] = [
         "Account_Name",
         "Phone",
@@ -38,6 +42,8 @@ class Settings(BaseSettings):
     alert_category_field: str = "Category"
     alert_account_field: str = "Account"
     alert_deal_field: str = "Deal"
+    # Leave unset when CRM_Alert has no Quote lookup. Unique_Key remains canonical.
+    alert_quote_field: str | None = None
     alert_responsible_owner_field: str = "Owner"
 
     alert_severity_field: str = "Severity"

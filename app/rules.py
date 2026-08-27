@@ -15,7 +15,7 @@ def _zoho_datetime_now() -> str:
 
 
 def alert_severity(category: str, inactive_days: int = 0) -> str:
-    if category == "Stale Deal":
+    if category in {"Stale Deal", "Stale Quote"}:
         if inactive_days > 60:
             return "Critical"
         if inactive_days > 30:
@@ -35,6 +35,7 @@ def alert_category_value(category: str) -> str:
         "Stale Account": "Stale Account",
         "Stale Deal": "Stale Deal",
         "Deal Without Quote": "Deal No Quote",
+        "Stale Quote": "Stale Quote",
     }.get(category, category)
 
 

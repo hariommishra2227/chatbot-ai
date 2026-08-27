@@ -12,7 +12,7 @@ from .zoho import ZohoClient
 logger = logging.getLogger(__name__)
 
 ACCOUNT_REMARKS = {
-    "Incomplete Profile", "No Contact", "Incomplete Contact", "No Deal",
+    "No Contact", "Incomplete Contact", "No Deal",
     "No Quote", "Stale Account",
 }
 ACCOUNT_LEGACY = {
@@ -29,6 +29,7 @@ DEAL_LEGACY = {
     "deal without quote": "Deal No Quote", "deal_without_quote": "Deal No Quote",
     "deal no quote": "Deal No Quote", "stale deal": "Stale Deal", "stale_deal": "Stale Deal",
 }
+QUOTE_LEGACY = {"stale quote": "Stale Quote", "stale_quote": "Stale Quote"}
 ACCOUNT_NAME_PREFIXES = ("no contact: ", "no deal: ", "no quote: ")
 
 
@@ -63,6 +64,7 @@ class PrimaryAlertReconciler:
         alerts = self.client.get_all_records(self.s.zoho_alerts_module, fields=self._alert_fields())
         account_alerts: dict[str, list[dict]] = {}
         deal_alerts: dict[str, list[dict]] = {}
+        quote_alerts: dict[str, list[dict]] = {}
         for alert in alerts:
             if self._is_account_alert(alert):
                 aid = _lookup_id(alert.get(self.s.alert_account_field))
@@ -74,6 +76,12 @@ class PrimaryAlertReconciler:
                 did = _lookup_id(alert.get(self.s.alert_deal_field))
                 if did:
                     deal_alerts.setdefault(did, []).append(alert)
+                else:
+                    self.counts["ambiguous_skipped"] += 1
+            if self._is_quote_alert(alert):
+                qid = self._quote_alert_id(alert)
+                if qid:
+                    quote_alerts.setdefault(qid, []).append(alert)
                 else:
                     self.counts["ambiguous_skipped"] += 1
 
@@ -102,15 +110,36 @@ class PrimaryAlertReconciler:
                 logger.warning("primary deal reconciliation failed deal_id=%s error=%s", deal.get("id"), exc)
                 self.counts["ambiguous_skipped"] += 1
 
+        quotes = self.client.get_all_records(
+            self.s.zoho_quotes_module,
+            fields=list(dict.fromkeys([
+                "id", "Subject", "Quote_Name", "Owner", "Account_Name", "Deal_Name",
+                self.s.quote_status_field, "Created_Time", "Modified_Time",
+            ])),
+        )
+        for quote in quotes:
+            self.counts["quotes_checked"] += 1
+            try:
+                remark, days = self._quote_primary(quote)
+                if remark:
+                    self.counts["primary_stale_quote"] += 1
+                self._reconcile_quote(quote, remark, days, quote_alerts.get(str(quote["id"]), []))
+            except Exception as exc:
+                logger.warning("primary quote reconciliation failed quote_id=%s error=%s", quote.get("id"), exc)
+                self.counts["ambiguous_skipped"] += 1
+
         keys = [
             "accounts_checked", "accounts_with_contact", "accounts_without_contact",
             "accounts_with_incomplete_contact", "accounts_profile_complete",
             "accounts_profile_incomplete", "accounts_with_deal", "accounts_without_deal",
             "accounts_with_quote", "accounts_without_quote", "accounts_stale",
-            "healthy_accounts", "primary_incomplete_profile",
+            "healthy_accounts",
             "primary_no_contact", "primary_incomplete_contact", "primary_no_deal",
             "primary_no_quote", "primary_stale_account", "would_create", "would_update",
             "would_resolve", "ambiguous_skipped",
+            "quotes_checked", "quotes_final", "quotes_active", "quotes_stale",
+            "primary_stale_quote", "quote_would_create", "quote_would_update",
+            "quote_would_resolve",
         ]
         return {**{key: self.counts[key] for key in keys}, "dry_run": self.dry_run, "sample_actions": self.sample}
 
@@ -118,6 +147,7 @@ class PrimaryAlertReconciler:
         return list(dict.fromkeys(filter(None, [
             "id", self.s.alert_name_field, self.s.alert_category_field,
             self.s.alert_account_field, self.s.alert_deal_field, self.s.alert_status_field,
+            self.s.alert_quote_field,
             self.s.alert_unique_key_field, self.s.alert_generated_on_field,
         ])))
 
@@ -136,6 +166,24 @@ class PrimaryAlertReconciler:
         key = str(alert.get(self.s.alert_unique_key_field) or "").upper()
         return bool(self._normalized(alert, DEAL_LEGACY) or key.startswith("PRIMARY-DEAL-") or
                     (key.startswith("DEAL-") and any(x in key for x in ("QUOTE", "STALE"))))
+
+    def _is_quote_alert(self, alert: dict) -> bool:
+        key = str(alert.get(self.s.alert_unique_key_field) or "").upper()
+        return bool(self._normalized(alert, QUOTE_LEGACY) or key.startswith("PRIMARY-QUOTE-") or
+                    (key.startswith("QUOTE-") and "STALE" in key))
+
+    def _quote_alert_id(self, alert: dict) -> str | None:
+        if self.s.alert_quote_field:
+            qid = _lookup_id(alert.get(self.s.alert_quote_field))
+            if qid:
+                return qid
+        key = str(alert.get(self.s.alert_unique_key_field) or "")
+        upper = key.upper()
+        if upper.startswith("PRIMARY-QUOTE-"):
+            return key[len("PRIMARY-QUOTE-"):]
+        if upper.startswith("QUOTE-") and upper.endswith("-STALE"):
+            return key[len("QUOTE-"):-len("-STALE")]
+        return None
 
     def _account_primary(self, account: dict) -> tuple[str | None, int]:
         aid = str(account["id"])
@@ -180,15 +228,13 @@ class PrimaryAlertReconciler:
 
         if has_deal and not has_quote:
             return "No Quote", created_days
-        if has_quote:
+        if has_deal and has_quote:
             return ("Stale Account", stale_days) if is_stale else (None, 0)
         if not has_deal:
             if contact_status == "No Contact":
                 return "No Contact", created_days
             if contact_status == "Incomplete Contact":
                 return "Incomplete Contact", created_days
-            if not profile_complete:
-                return "Incomplete Profile", created_days
             return "No Deal", created_days
         logger.warning("unexpected account fact combination account_id=%s", aid)
         return None, 0
@@ -201,6 +247,59 @@ class PrimaryAlertReconciler:
             return "Deal No Quote", _days(deal.get("Created_Time"), label="Deal Created_Time", record_id=did)
         stale_days = _days(deal.get("Modified_Time"), label="Deal Modified_Time", record_id=did)
         return ("Stale Deal", stale_days) if stale_days > self.s.stale_deal_days else (None, 0)
+
+    def _quote_primary(self, quote: dict) -> tuple[str | None, int]:
+        qid = str(quote["id"])
+        status = str(quote.get(self.s.quote_status_field) or "").strip().casefold()
+        final_statuses = {value.strip().casefold() for value in self.s.final_quote_statuses}
+        if status in final_statuses:
+            self.counts["quotes_final"] += 1
+            return None, 0
+        self.counts["quotes_active"] += 1
+        stale_days = _days(quote.get("Modified_Time"), label="Quote Modified_Time", record_id=qid)
+        if stale_days > self.s.stale_quote_days:
+            self.counts["quotes_stale"] += 1
+            return "Stale Quote", stale_days
+        return None, 0
+
+    def _reconcile_quote(self, quote: dict, remark: str | None, days: int, alerts: list[dict]) -> None:
+        qid = str(quote["id"])
+        key = f"PRIMARY-QUOTE-{qid}"
+        open_alerts = [a for a in alerts if str(a.get(self.s.alert_status_field) or "").casefold() != "resolved"]
+        canonical = None
+        if remark:
+            matching = [a for a in alerts if self._normalized(a, QUOTE_LEGACY) == remark]
+            canonical = next((a for a in matching if a in open_alerts), None) or (matching[0] if matching else None)
+            if canonical is None:
+                canonical = next((a for a in alerts if a.get(self.s.alert_unique_key_field) == key), None)
+            payload = self._quote_payload(quote, days, key)
+            self._action("update" if canonical else "create", str(canonical["id"]) if canonical else None,
+                         payload, key, scope="quote")
+        for alert in open_alerts:
+            if canonical is None or str(alert.get("id")) != str(canonical.get("id")):
+                self._action("resolve", str(alert["id"]), {self.s.alert_status_field: "Resolved"}, key,
+                             scope="quote")
+
+    def _quote_payload(self, quote: dict, days: int, key: str) -> dict:
+        payload = {
+            self.s.alert_name_field: quote.get("Subject") or quote.get("Quote_Name") or "Unnamed Quote",
+            self.s.alert_category_field: "Stale Quote", self.s.alert_status_field: "Open",
+            self.s.alert_inactive_days_field: days,
+            self.s.alert_severity_field: alert_severity("Stale Quote", days),
+            self.s.alert_recommended_action_field: "Review the quotation and follow up with the customer.",
+            self.s.alert_unique_key_field: key, self.s.alert_generated_on_field: _zoho_datetime_now(),
+        }
+        if self.s.alert_quote_field:
+            payload[self.s.alert_quote_field] = {"id": str(quote["id"])}
+        aid, did = _lookup_id(quote.get("Account_Name")), _lookup_id(quote.get("Deal_Name"))
+        if aid:
+            payload[self.s.alert_account_field] = {"id": aid}
+        if did:
+            payload[self.s.alert_deal_field] = {"id": did}
+        owner = quote.get("Owner") or {}
+        if isinstance(owner, dict) and owner.get("id"):
+            payload[self.s.alert_responsible_owner_field] = {"id": str(owner["id"])}
+        return payload
 
     def _reconcile(self, source: dict, remark: str | None, days: int, alerts: list[dict], *, deal: bool) -> None:
         record_id = str(source["id"])
@@ -248,7 +347,7 @@ class PrimaryAlertReconciler:
         return {
             "Incomplete Profile": "Complete and verify the missing account profile fields.",
             "No Contact": "Add and verify at least one account contact.",
-            "Incomplete Contact": "Add both email and phone to at least one related contact.",
+            "Incomplete Contact": "Add an email address or phone number to at least one related contact.",
             "No Deal": "Review the account and create a deal where appropriate.",
             "No Quote": "Prepare or link a quote for the account.",
             "Stale Account": "Contact the account owner and record the next customer action.",
@@ -256,8 +355,10 @@ class PrimaryAlertReconciler:
             "Stale Deal": "Contact the customer and update the deal status or next action.",
         }[remark]
 
-    def _action(self, kind: str, alert_id: str | None, payload: dict, key: str) -> None:
+    def _action(self, kind: str, alert_id: str | None, payload: dict, key: str, *, scope: str | None = None) -> None:
         self.counts["would_" + kind] += 1
+        if scope:
+            self.counts[f"{scope}_would_{kind}"] += 1
         if len(self.sample) < 20:
             self.sample.append({"action": kind, "alert_id": alert_id, "unique_key": key,
                                 "remark": payload.get(self.s.alert_category_field)})
