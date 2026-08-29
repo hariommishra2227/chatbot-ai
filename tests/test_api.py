@@ -18,18 +18,44 @@ def test_admin_requires_key():
 
 
 def test_admin_dashboard_requires_authentication_and_uses_http_only_session():
-    login_page = client.get("/admin")
-    assert login_page.status_code == 200
-    assert "Document Admin" in login_page.text
-    assert "Manage the private retrieval index" not in login_page.text
-    denied = client.post("/admin/login", data={"api_key": "wrong"})
-    assert denied.status_code == 401
-    authenticated = client.post("/admin/login", data={"api_key": "test-admin-api-key-at-least-24"}, follow_redirects=False)
-    assert authenticated.status_code == 303
-    assert "httponly" in authenticated.headers["set-cookie"].lower()
-    dashboard = client.get("/admin")
-    assert "Manage the private retrieval index" in dashboard.text
-    assert "test-admin-api-key-at-least-24" not in dashboard.text
+    with TestClient(app) as browser:
+        redirect = browser.get("/admin", follow_redirects=False)
+        assert redirect.status_code == 303
+        assert redirect.headers["location"] == "/admin/login"
+
+        login_page = browser.get("/admin/login")
+        assert login_page.status_code == 200
+        assert "Document Admin" in login_page.text
+        assert 'type="password"' in login_page.text
+        assert "test-admin-api-key-at-least-24" not in login_page.text
+
+        denied = browser.post("/admin/login", data={"api_key": "wrong"}, follow_redirects=False)
+        assert denied.status_code == 401
+        assert "set-cookie" not in denied.headers
+        assert browser.get("/admin", follow_redirects=False).status_code == 303
+
+        authenticated = browser.post("/admin/login", data={"api_key": "test-admin-api-key-at-least-24"}, follow_redirects=False)
+        assert authenticated.status_code == 303
+        assert authenticated.headers["location"] == "/admin"
+        cookie = authenticated.headers["set-cookie"].lower()
+        assert "httponly" in cookie
+        assert "samesite=lax" in cookie
+
+        dashboard = browser.get("/admin")
+        assert dashboard.status_code == 200
+        assert "Manage the private retrieval index" in dashboard.text
+        assert "test-admin-api-key-at-least-24" not in dashboard.text
+
+        # A browser session does not weaken the separately protected API.
+        api_response = browser.get("/api/admin/documents")
+        assert api_response.status_code == 401
+        assert api_response.headers.get("content-type", "").startswith("application/json")
+
+        logout = browser.post("/admin/logout", follow_redirects=False)
+        assert logout.status_code == 303
+        assert logout.headers["location"] == "/admin/login"
+        assert "max-age=0" in logout.headers["set-cookie"].lower()
+        assert browser.get("/admin", follow_redirects=False).status_code == 303
 
 
 def test_chat_validation_hides_internal_details():

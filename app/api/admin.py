@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import require_admin
+from app.api.dependencies import require_admin_api_key
 from app.config import get_settings
 from app.database import get_db
 from app.models import Document, DocumentChunk
@@ -15,7 +15,7 @@ from app.services.ai_provider import AIConfigurationError, get_ai_provider
 from app.services.indexing import is_compatible, mark_indexing_error, reindex_document
 from app.services.usage import month_usage, record_usage
 
-router = APIRouter(prefix="/api/admin/documents", tags=["admin"], dependencies=[Depends(require_admin)])
+router = APIRouter(prefix="/api/admin/documents", tags=["admin"], dependencies=[Depends(require_admin_api_key)])
 
 
 @router.get("/readiness", response_model=ReadinessResponse)

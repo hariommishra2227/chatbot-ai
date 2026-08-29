@@ -3,7 +3,7 @@ import hashlib
 import hmac
 import time
 
-from fastapi import Cookie, Header, HTTPException, status
+from fastapi import Header, HTTPException, Request, status
 
 from app.config import get_settings
 
@@ -33,11 +33,14 @@ def valid_admin_session(token: str) -> bool:
     return secrets.compare_digest(signature, expected)
 
 
-def require_admin(
-    x_admin_api_key: str = Header(default=""),
-    chatbot_admin_session: str = Cookie(default="", alias=COOKIE_NAME),
-) -> None:
+def require_admin_api_key(x_admin_api_key: str = Header(default="")) -> None:
+    """Authenticate machine/API requests with the explicit admin header only."""
     expected = get_settings().admin_api_key.get_secret_value()
-    header_valid = bool(expected) and secrets.compare_digest(x_admin_api_key, expected)
-    if not header_valid and not valid_admin_session(chatbot_admin_session):
+    if not expected or not secrets.compare_digest(x_admin_api_key, expected):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin credentials")
+
+
+def require_admin_session(request: Request) -> None:
+    """Authenticate browser pages with the signed HttpOnly session only."""
+    if not valid_admin_session(request.cookies.get(COOKIE_NAME, "")):
+        raise HTTPException(status_code=status.HTTP_303_SEE_OTHER, headers={"Location": "/admin/login"})
