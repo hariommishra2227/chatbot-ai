@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-5.6-luna"
     embedding_model: str = "text-embedding-3-small"
     aws_region: str = "ap-south-1"
-    bedrock_chat_model_id: str = "amazon.nova-micro-v1:0"
+    bedrock_chat_model_id: str = "apac.amazon.nova-micro-v1:0"
     bedrock_embedding_model_id: str = "amazon.titan-embed-text-v2:0"
     bedrock_embedding_dimensions: int = Field(1024, ge=1024, le=1024)
     bedrock_guardrail_id: str = ""

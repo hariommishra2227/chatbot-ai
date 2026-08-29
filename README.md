@@ -56,7 +56,7 @@ curl.exe -X POST http://localhost:8000/api/leads -H "Content-Type: application/j
 
 `AI_PROVIDER_MODE` accepts `mock` (default), `openai`, or `bedrock`. Mock mode uses deterministic local embeddings and returns a clearly labelled sample answer composed from retrieved document excerpts; it needs no AI key and makes no external AI calls. Selecting OpenAI or Bedrock without its required configuration returns a safe readiness/service error without stopping the application.
 
-Required: `DATABASE_URL` and `ADMIN_API_KEY` (24+ characters). `OPENAI_API_KEY` is required only in OpenAI mode. The approved Bedrock defaults are `ap-south-1`, Nova Micro `amazon.nova-micro-v1:0`, Titan Text Embeddings V2 `amazon.titan-embed-text-v2:0`, and 1024 dimensions. Guardrail ID and version are optional and must be supplied together. OpenAI continues to use `OPENAI_MODEL` and `EMBEDDING_MODEL`; `text-embedding-3-small` calls explicitly request 1024 dimensions. Mock, OpenAI, and Bedrock embeddings are all standardized to 1024 dimensions.
+Required: `DATABASE_URL` and `ADMIN_API_KEY` (24+ characters). `OPENAI_API_KEY` is required only in OpenAI mode. The verified Bedrock configuration is Region `ap-south-1`, Nova Micro APAC inference profile `apac.amazon.nova-micro-v1:0`, Titan Text Embeddings V2 `amazon.titan-embed-text-v2:0`, and 1024 dimensions. In `ap-south-1`, use the APAC inference profile ID for Nova Micro rather than the foundation-model ID. Guardrail ID and version are optional and must be supplied together. OpenAI continues to use `OPENAI_MODEL` and `EMBEDDING_MODEL`; `text-embedding-3-small` calls explicitly request 1024 dimensions. Mock, OpenAI, and Bedrock embeddings are all standardized to 1024 dimensions.
 
 The database uses `vector(1024)` and records provider, model, and dimensions independently. Changing the active provider or embedding model makes prior documents incompatible by design. They remain stored and visible as `requires_reindex`, but retrieval excludes them until explicitly reindexed.
 
@@ -65,11 +65,13 @@ The database uses `vector(1024)` and records provider, model, and dimensions ind
 Do not enable Bedrock or add credentials until the company AWS/DevOps team has approved both the exact model IDs and AWS Region and granted model access.
 
 1. Deploy migration `0002_embedding_compatibility` with `alembic upgrade head`. It preserves all original uploads and extracted chunk text, clears only incompatible 1536-dimensional vectors, changes the column to `vector(1024)`, recreates HNSW, and marks legacy documents `requires_reindex`.
-2. Have AWS/DevOps confirm the approved Region and model access: `ap-south-1`, `amazon.nova-micro-v1:0`, and `amazon.titan-embed-text-v2:0` at 1024 dimensions.
+2. Have AWS/DevOps confirm the approved Region and model access: `ap-south-1`, the APAC Nova Micro inference profile `apac.amazon.nova-micro-v1:0`, and `amazon.titan-embed-text-v2:0` at 1024 dimensions.
 3. Give the workload IAM role least-privilege access to the approved model resources. The application uses boto3's default credential chain and supports ECS, EKS, EC2, and other workload IAM roles. Never put static AWS credentials in `.env`.
 4. Keep guardrail values blank unless an approved guardrail is available, then set `AI_PROVIDER_MODE=bedrock` and restart. No permanent AWS credential variables are needed; an ECS deployment should use its Task IAM Role.
 5. Check `/ready` and the safe status at `/admin`. No connectivity test or model invocation is performed merely by loading status.
 6. From `/admin`, reindex one document first and verify chat results, then choose **Reindex incompatible**. Reindexing generates the complete replacement before changing rows and commits atomically. On failure, the original document and working vectors are preserved; retrying is safe.
+
+For local development, boto3 may use temporary credentials created by an approved AWS browser-login flow. Keep those credentials in the standard local AWS credential chain; never copy them into `.env`, source files, container images, or commits. Production ECS tasks must use an ECS Task IAM Role. Do not mount a developer's local `.aws` directory into a production container.
 
 Required IAM actions on only the approved Bedrock model resources:
 

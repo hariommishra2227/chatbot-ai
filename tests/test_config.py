@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from app.config import Settings
@@ -14,6 +16,22 @@ def test_mock_is_default_and_needs_no_key():
     assert settings.ai_provider_mode == "mock"
     assert isinstance(get_ai_provider(settings), MockAIProvider)
     assert get_ai_provider(settings).embedding_dimensions == 1024
+
+
+def test_verified_apac_bedrock_defaults():
+    settings = Settings(_env_file=None, admin_api_key="a" * 24)
+    assert settings.aws_region == "ap-south-1"
+    assert settings.bedrock_chat_model_id == "apac.amazon.nova-micro-v1:0"
+    assert settings.bedrock_embedding_model_id == "amazon.titan-embed-text-v2:0"
+    assert settings.bedrock_embedding_dimensions == 1024
+
+
+def test_pytest_environment_forces_hermetic_mock_ai_configuration():
+    assert os.environ["AI_PROVIDER_MODE"] == "mock"
+    assert os.environ["OPENAI_API_KEY"] == ""
+    assert os.environ["EMBEDDING_DIMENSIONS"] == "1024"
+    assert os.environ["BEDROCK_EMBEDDING_DIMENSIONS"] == "1024"
+    assert os.environ["ADMIN_API_KEY"] == "test-admin-api-key-at-least-24"
 
 
 def test_mock_response_uses_retrieved_document_text():
