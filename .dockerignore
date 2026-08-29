@@ -6,3 +6,5 @@ __pycache__
 *.pyc
 .coverage
 htmlcov
+docker-compose.aws-local.yml
+.aws/

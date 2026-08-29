@@ -8,3 +8,6 @@ htmlcov/
 .idea/
 .vscode/
 
+docker-compose.aws-local.yml
+.aws/
+.aws/
