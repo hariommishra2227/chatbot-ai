@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Document Admin</title><link rel="stylesheet" href="/admin/assets/admin.css"></head>
+<body><header><div><h1>Document Admin</h1><p>Manage the private retrieval index</p></div><form method="post" action="/admin/logout"><button class="secondary">Sign out</button></form></header>
+<main><section class="status"><div><span>AI mode</span><strong id="mode">—</strong></div><div><span>Readiness</span><strong id="readiness">Checking…</strong></div></section>
+<section><h2>Upload document</h2><form id="upload"><input name="file" type="file" accept=".pdf,.docx,.txt" required><button>Upload and index</button></form><p id="notice" role="status"></p></section>
+<section><div class="section-title"><h2>Documents</h2><button id="reindex-all" class="secondary">Reindex incompatible</button></div><div class="table-wrap"><table><thead><tr><th>File</th><th>Size</th><th>Uploaded</th><th>Chunks</th><th>Provider / model</th><th>Status</th><th>Actions</th></tr></thead><tbody id="documents"></tbody></table></div></section></main><script src="/admin/assets/admin.js" defer></script></body></html>

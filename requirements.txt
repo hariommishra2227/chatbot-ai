@@ -5,6 +5,7 @@ psycopg[binary]==3.2.9
 alembic==1.16.5
 pgvector==0.4.1
 openai==1.102.0
+boto3==1.43.83
 pydantic-settings==2.10.1
 python-multipart==0.0.20
 pypdf==6.0.0
@@ -14,4 +15,3 @@ slowapi==0.1.9
 pytest==8.4.1
 pytest-asyncio==1.1.0
 httpx==0.28.1
-

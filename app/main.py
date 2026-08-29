@@ -9,7 +9,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 
-from app.api import admin, chat, leads
+from app.api import admin, admin_pages, chat, leads
 from app.config import get_settings
 from app.database import engine
 from app.main_state import limiter
@@ -33,6 +33,7 @@ app.add_middleware(
 app.include_router(chat.router)
 app.include_router(leads.router)
 app.include_router(admin.router)
+app.include_router(admin_pages.router)
 
 
 @app.get("/health", response_model=StatusResponse, tags=["system"])
@@ -47,7 +48,9 @@ def ready() -> StatusResponse:
             connection.execute(text("SELECT 1"))
     except Exception:
         return JSONResponse(status_code=503, content={"status": "not ready"})
-    if settings.ai_provider_mode == "openai" and not settings.openai_api_key.get_secret_value():
+    try:
+        settings.validate_ai_provider()
+    except ValueError:
         return JSONResponse(status_code=503, content={"status": "not ready"})
     return StatusResponse(status="ready")
 

@@ -1,6 +1,6 @@
 # Company Document Chatbot MVP
 
-Production-oriented FastAPI chatbot using PostgreSQL/pgvector retrieval with switchable offline mock and OpenAI providers. Mock mode is the default and makes no external AI calls. Documents and application history stay in PostgreSQL. In OpenAI mode, only the user question, up to `MAX_CONTEXT_CHUNKS` relevant excerpts, and six recent short messages are sent to OpenAI; response storage is disabled.
+Production-oriented FastAPI chatbot using PostgreSQL/pgvector retrieval with switchable offline mock, OpenAI, and Amazon Bedrock providers. Mock mode is the default and makes no external AI calls. Documents and application history stay in PostgreSQL. Provider, embedding model, and dimensions are recorded for every document so vectors from different embedding spaces are never searched together.
 
 ## Local setup (Windows PowerShell)
 
@@ -21,6 +21,7 @@ uvicorn app.main:app --reload
 ```
 
 Open http://localhost:8000. API documentation is at http://localhost:8000/api/docs.
+The visually separate document dashboard is at http://localhost:8000/admin. Sign in with `ADMIN_API_KEY`; the key is exchanged for a signed, HttpOnly, same-site session and is not stored in page HTML, JavaScript, browser storage, logs, or URLs.
 
 ## Browser voice support
 
@@ -45,23 +46,60 @@ curl.exe http://localhost:8000/health
 curl.exe http://localhost:8000/ready
 curl.exe -X POST http://localhost:8000/api/admin/documents -H "X-Admin-API-Key: YOUR_ADMIN_KEY" -F "file=@.\company-faq.txt;type=text/plain"
 curl.exe http://localhost:8000/api/admin/documents -H "X-Admin-API-Key: YOUR_ADMIN_KEY"
+curl.exe -X POST http://localhost:8000/api/admin/documents/DOCUMENT_UUID/reindex -H "X-Admin-API-Key: YOUR_ADMIN_KEY"
+curl.exe -X POST http://localhost:8000/api/admin/documents/reindex-incompatible -H "X-Admin-API-Key: YOUR_ADMIN_KEY"
 curl.exe -X POST http://localhost:8000/api/chat -H "Content-Type: application/json" -d '{"message":"What services do you provide?"}'
 curl.exe -X POST http://localhost:8000/api/leads -H "Content-Type: application/json" -d '{"name":"Alex","company":"Example Ltd","email":"alex@example.com","phone":"+91 9876543210","requirement":"Please contact me about implementation."}'
 ```
 
 ## Configuration
 
-`AI_PROVIDER_MODE` accepts `mock` (default) or `openai`. Mock mode uses deterministic local embeddings and returns a clearly labelled sample answer composed from retrieved document excerpts; it needs no AI key and makes no external AI calls. To enable OpenAI later, set `AI_PROVIDER_MODE=openai` and provide `OPENAI_API_KEY`. Selecting OpenAI without a key returns a safe service configuration error without stopping the application.
+`AI_PROVIDER_MODE` accepts `mock` (default), `openai`, or `bedrock`. Mock mode uses deterministic local embeddings and returns a clearly labelled sample answer composed from retrieved document excerpts; it needs no AI key and makes no external AI calls. Selecting OpenAI or Bedrock without its required configuration returns a safe readiness/service error without stopping the application.
 
-Required: `DATABASE_URL` and `ADMIN_API_KEY` (24+ characters); `OPENAI_API_KEY` is required only in OpenAI mode. Configurable: `OPENAI_MODEL` (default `gpt-5.6-luna`), `EMBEDDING_MODEL` (default `text-embedding-3-small`), `ALLOWED_ORIGINS` (comma-separated), `MAX_UPLOAD_MB`, `MAX_CONTEXT_CHUNKS`, `MONTHLY_TOKEN_LIMIT`, `RATE_LIMIT_PER_MINUTE`, `EMBEDDING_DIMENSIONS`, and `MAX_ANSWER_TOKENS`.
+Required: `DATABASE_URL` and `ADMIN_API_KEY` (24+ characters). `OPENAI_API_KEY` is required only in OpenAI mode. The approved Bedrock defaults are `ap-south-1`, Nova Micro `amazon.nova-micro-v1:0`, Titan Text Embeddings V2 `amazon.titan-embed-text-v2:0`, and 1024 dimensions. Guardrail ID and version are optional and must be supplied together. OpenAI continues to use `OPENAI_MODEL` and `EMBEDDING_MODEL`; `text-embedding-3-small` calls explicitly request 1024 dimensions. Mock, OpenAI, and Bedrock embeddings are all standardized to 1024 dimensions.
 
-Changing `EMBEDDING_DIMENSIONS` requires an accompanying migration; the initial schema uses 1536 dimensions.
+The database uses `vector(1024)` and records provider, model, and dimensions independently. Changing the active provider or embedding model makes prior documents incompatible by design. They remain stored and visible as `requires_reindex`, but retrieval excludes them until explicitly reindexed.
+
+## Mock to Amazon Bedrock migration
+
+Do not enable Bedrock or add credentials until the company AWS/DevOps team has approved both the exact model IDs and AWS Region and granted model access.
+
+1. Deploy migration `0002_embedding_compatibility` with `alembic upgrade head`. It preserves all original uploads and extracted chunk text, clears only incompatible 1536-dimensional vectors, changes the column to `vector(1024)`, recreates HNSW, and marks legacy documents `requires_reindex`.
+2. Have AWS/DevOps confirm the approved Region and model access: `ap-south-1`, `amazon.nova-micro-v1:0`, and `amazon.titan-embed-text-v2:0` at 1024 dimensions.
+3. Give the workload IAM role least-privilege access to the approved model resources. The application uses boto3's default credential chain and supports ECS, EKS, EC2, and other workload IAM roles. Never put static AWS credentials in `.env`.
+4. Keep guardrail values blank unless an approved guardrail is available, then set `AI_PROVIDER_MODE=bedrock` and restart. No permanent AWS credential variables are needed; an ECS deployment should use its Task IAM Role.
+5. Check `/ready` and the safe status at `/admin`. No connectivity test or model invocation is performed merely by loading status.
+6. From `/admin`, reindex one document first and verify chat results, then choose **Reindex incompatible**. Reindexing generates the complete replacement before changing rows and commits atomically. On failure, the original document and working vectors are preserved; retrying is safe.
+
+Required IAM actions on only the approved Bedrock model resources:
+
+- `bedrock:InvokeModel`
+- `bedrock:InvokeModelWithResponseStream`
+
+The current chat path uses the Bedrock Converse API without streaming, but `InvokeModelWithResponseStream` is documented for an approved future streaming rollout. Model IDs and AWS Region must be approved by the company's AWS/DevOps team.
+
+Example IAM statement for the approved `ap-south-1` foundation models:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "bedrock:InvokeModel",
+    "bedrock:InvokeModelWithResponseStream"
+  ],
+  "Resource": [
+    "arn:aws:bedrock:ap-south-1::foundation-model/amazon.nova-micro-v1:0",
+    "arn:aws:bedrock:ap-south-1::foundation-model/amazon.titan-embed-text-v2:0"
+  ]
+}
+```
 
 ## AWS deployment checklist
 
 - Push the image to ECR and deploy it on ECS Fargate or App Runner behind an HTTPS load balancer.
 - Use Amazon RDS for PostgreSQL with pgvector enabled; run `alembic upgrade head` as a one-off deployment task.
 - Store secrets in AWS Secrets Manager or SSM Parameter Store and inject them into the task definition.
+- Use a task IAM role and the AWS default credential chain for Bedrock; never bake AWS access keys into the image or environment file.
 - Restrict RDS to private subnets/security groups; give the application least-privilege IAM permissions.
 - Add WAF/API Gateway or load-balancer rate limits for distributed production traffic. The included in-process limiter is only a basic MVP guard and is per container.
 - Send application logs (which omit document bodies and lead values) to CloudWatch; add alarms, backups, Multi-AZ as required, and an RDS Proxy if connection pressure warrants it.

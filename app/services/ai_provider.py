@@ -3,7 +3,7 @@ import math
 import re
 from typing import Protocol
 
-from app.config import Settings
+from app.config import STANDARD_EMBEDDING_DIMENSIONS, Settings
 
 
 class AIConfigurationError(RuntimeError):
@@ -11,6 +11,10 @@ class AIConfigurationError(RuntimeError):
 
 
 class AIProvider(Protocol):
+    provider_name: str
+    embedding_model: str
+    embedding_dimensions: int
+
     def embed(self, texts: list[str]) -> tuple[list[list[float]], int]: ...
 
     def answer(self, question: str, history: list[tuple[str, str]], chunks: list[tuple[str, str]]) -> tuple[str, int, int]: ...
@@ -20,16 +24,18 @@ class MockAIProvider:
     """Offline provider that keeps document retrieval functional without an API."""
 
     def __init__(self, settings: Settings):
-        self.dimensions = settings.embedding_dimensions
+        self.provider_name = "mock"
+        self.embedding_model = "mock-sha256-v1"
+        self.embedding_dimensions = STANDARD_EMBEDDING_DIMENSIONS
 
     def embed(self, texts: list[str]) -> tuple[list[list[float]], int]:
         return [self._embed_one(text) for text in texts], 0
 
     def _embed_one(self, text: str) -> list[float]:
-        vector = [0.0] * self.dimensions
+        vector = [0.0] * self.embedding_dimensions
         for word in re.findall(r"[a-z0-9]+", text.lower()):
             digest = hashlib.sha256(word.encode("utf-8")).digest()
-            index = int.from_bytes(digest[:8], "big") % self.dimensions
+            index = int.from_bytes(digest[:8], "big") % self.embedding_dimensions
             vector[index] += 1.0
         norm = math.sqrt(sum(value * value for value in vector))
         return [value / norm for value in vector] if norm else vector
@@ -48,6 +54,8 @@ def get_ai_provider(settings: Settings) -> AIProvider:
         settings.validate_ai_provider()
     except ValueError as exc:
         raise AIConfigurationError(str(exc)) from exc
-    from app.services.openai_service import OpenAIService
-
-    return OpenAIService(settings)
+    if settings.ai_provider_mode == "openai":
+        from app.services.openai_service import OpenAIService
+        return OpenAIService(settings)
+    from app.services.bedrock_service import BedrockService
+    return BedrockService(settings)

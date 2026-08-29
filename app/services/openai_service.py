@@ -1,15 +1,18 @@
 from openai import OpenAI
 
-from app.config import Settings
+from app.config import STANDARD_EMBEDDING_DIMENSIONS, Settings
 
 
 class OpenAIService:
     def __init__(self, settings: Settings):
         self.settings = settings
+        self.provider_name = "openai"
+        self.embedding_model = settings.embedding_model
+        self.embedding_dimensions = STANDARD_EMBEDDING_DIMENSIONS
         self.client = OpenAI(api_key=settings.openai_api_key.get_secret_value())
 
     def embed(self, texts: list[str]) -> tuple[list[list[float]], int]:
-        response = self.client.embeddings.create(model=self.settings.embedding_model, input=texts)
+        response = self.client.embeddings.create(model=self.embedding_model, input=texts, dimensions=self.embedding_dimensions)
         return [item.embedding for item in response.data], response.usage.total_tokens
 
     def answer(self, question: str, history: list[tuple[str, str]], chunks: list[tuple[str, str]]) -> tuple[str, int, int]:
@@ -30,4 +33,3 @@ class OpenAIService:
         )
         usage = response.usage
         return response.output_text.strip(), usage.input_tokens if usage else 0, usage.output_tokens if usage else 0
-

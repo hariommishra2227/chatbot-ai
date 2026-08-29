@@ -15,6 +15,22 @@ from app.services.usage import month_usage, record_usage
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
+def compatible_chunks_query(service):
+    """Materialize identity-compatible vectors before any distance operation."""
+    return (
+        select(DocumentChunk.content, DocumentChunk.embedding, Document.filename)
+        .join(Document, Document.id == DocumentChunk.document_id)
+        .where(
+            Document.indexing_status == "indexed",
+            Document.embedding_provider == service.provider_name,
+            Document.embedding_model == service.embedding_model,
+            Document.embedding_dimensions == service.embedding_dimensions,
+        )
+        .cte("compatible_chunks")
+        .prefix_with("MATERIALIZED")
+    )
+
+
 @router.post("", response_model=ChatResponse)
 @limiter.limit(lambda: f"{get_settings().rate_limit_per_minute}/minute")
 def chat(request: Request, payload: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
@@ -35,10 +51,10 @@ def chat(request: Request, payload: ChatRequest, db: Session = Depends(get_db)) 
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Chat service is temporarily unavailable") from exc
-    distance = DocumentChunk.embedding.cosine_distance(vectors[0]).label("distance")
+    compatible_chunks = compatible_chunks_query(service)
+    distance = compatible_chunks.c.embedding.cosine_distance(vectors[0]).label("distance")
     rows = db.execute(
-        select(DocumentChunk.content, Document.filename, distance)
-        .join(Document, Document.id == DocumentChunk.document_id)
+        select(compatible_chunks.c.content, compatible_chunks.c.filename, distance)
         .where(distance < (0.999999 if settings.ai_provider_mode == "mock" else 0.55))
         .order_by(distance)
         .limit(settings.max_context_chunks)

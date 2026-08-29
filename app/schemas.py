@@ -44,13 +44,31 @@ class DocumentResponse(BaseModel):
     content_type: str
     size_bytes: int
     created_at: datetime
+    chunks: int = 0
+    embedding_provider: str
+    embedding_model: str
+    embedding_dimensions: int
+    indexing_status: str
+    indexing_error: str | None = None
+    indexing_error_at: datetime | None = None
     model_config = ConfigDict(from_attributes=True)
 
 
 class UploadResponse(DocumentResponse):
-    chunks: int
+    pass
+
+
+class ReadinessResponse(BaseModel):
+    ai_mode: str
+    status: str
+    detail: str
+
+
+class ReindexResponse(BaseModel):
+    status: str
+    succeeded: int
+    failed: int
 
 
 class StatusResponse(BaseModel):
     status: str
-

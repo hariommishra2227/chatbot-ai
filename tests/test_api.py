@@ -17,6 +17,21 @@ def test_admin_requires_key():
     assert response.json()["detail"] == "Invalid admin credentials"
 
 
+def test_admin_dashboard_requires_authentication_and_uses_http_only_session():
+    login_page = client.get("/admin")
+    assert login_page.status_code == 200
+    assert "Document Admin" in login_page.text
+    assert "Manage the private retrieval index" not in login_page.text
+    denied = client.post("/admin/login", data={"api_key": "wrong"})
+    assert denied.status_code == 401
+    authenticated = client.post("/admin/login", data={"api_key": "test-admin-api-key-at-least-24"}, follow_redirects=False)
+    assert authenticated.status_code == 303
+    assert "httponly" in authenticated.headers["set-cookie"].lower()
+    dashboard = client.get("/admin")
+    assert "Manage the private retrieval index" in dashboard.text
+    assert "test-admin-api-key-at-least-24" not in dashboard.text
+
+
 def test_chat_validation_hides_internal_details():
     response = client.post("/api/chat", json={"message": " "})
     assert response.status_code == 422

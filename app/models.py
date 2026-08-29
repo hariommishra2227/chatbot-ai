@@ -6,7 +6,6 @@ from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, LargeBi
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.config import get_settings
 from app.database import Base
 
 
@@ -23,6 +22,12 @@ class Document(Base):
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    embedding_provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    embedding_model: Mapped[str] = mapped_column(String(255), nullable=False)
+    embedding_dimensions: Mapped[int] = mapped_column(Integer, nullable=False)
+    indexing_status: Mapped[str] = mapped_column(String(32), default="indexed", nullable=False)
+    indexing_error: Mapped[str | None] = mapped_column(String(255))
+    indexing_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     chunks: Mapped[list["DocumentChunk"]] = relationship(cascade="all, delete-orphan", back_populates="document")
 
 
@@ -32,7 +37,7 @@ class DocumentChunk(Base):
     document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding: Mapped[list[float]] = mapped_column(Vector(get_settings().embedding_dimensions), nullable=False)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1024), nullable=True)
     document: Mapped[Document] = relationship(back_populates="chunks")
     __table_args__ = (
         UniqueConstraint("document_id", "chunk_index", name="uq_document_chunk_index"),
